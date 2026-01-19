@@ -22,8 +22,33 @@ if [ -z "$TARGET_LANGUAGES" ]; then
     exit 1
 fi
 
+if [ -z "$GITHUB_REPO" ]; then
+    echo -e "${RED}Error: GITHUB_REPO is required${NC}"
+    exit 1
+fi
+
 API_URL="${AUTOGLOT_API_URL:-https://api.autoglot.app}"
-PARALLEL="${PARALLEL_JOBS:-4}"
+BRANCH="${BRANCH_NAME:-autoglot/translations}"
+BASE_BRANCH="${GITHUB_BASE_BRANCH:-main}"
+COMMIT_MSG="${COMMIT_MESSAGE:-chore(i18n): update translations}"
+PR_TITLE_MSG="${PR_TITLE:-chore(i18n): update translations}"
+
+echo "Repository: $GITHUB_REPO"
+echo "Branch: $BRANCH"
+echo "Base branch: $BASE_BRANCH"
+echo "Languages: $TARGET_LANGUAGES"
+echo ""
+
+# Check if this commit was made by autoglot bot (prevent infinite loops)
+# When using GitHub App, commits are attributed to autoglot[bot]
+# PAT commits don't trigger workflows anyway (GitHub's built-in protection)
+COMMIT_AUTHOR=$(git log -1 --pretty=%an 2>/dev/null || echo "")
+if echo "$COMMIT_AUTHOR" | grep -qi "autoglot\[bot\]"; then
+    echo -e "${YELLOW}Skipping: Commit was made by autoglot bot${NC}"
+    echo ""
+    echo "This prevents infinite translation loops when autoglot PRs are merged."
+    exit 0
+fi
 
 # Find all .xcstrings files
 if [ -z "$INPUT_FILE" ]; then
@@ -41,144 +66,120 @@ fi
 
 FILE_COUNT=$(echo "$FILES" | wc -l | tr -d ' ')
 echo -e "Found ${BLUE}$FILE_COUNT${NC} file(s)"
-echo "Languages: $TARGET_LANGUAGES"
-echo "Parallel jobs: $PARALLEL"
 echo ""
 
-# Create temp directory for results
+# Create temp directory for payload
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
 # Convert comma-separated languages to JSON array
 LANGUAGES_JSON=$(echo "$TARGET_LANGUAGES" | jq -R 'split(",")')
 
-# Function to translate a single file
-translate_file() {
-    local file="$1"
-    local result_file="$2"
+# Build files array for API request using --slurpfile to avoid argument limits
+echo -e "${BLUE}Reading files...${NC}"
+echo "[]" > "$TEMP_DIR/files.json"
 
-    echo -e "${YELLOW}Translating:${NC} $file"
-
-    # Extract source language directly from file
-    local source_lang
-    source_lang=$(jq -r '.sourceLanguage // "en"' "$file")
-
-    # Build request payload using --slurpfile to avoid argument length limits
-    # This reads the file content directly instead of passing it as a CLI argument
-    local payload
-    payload=$(jq -n \
-        --slurpfile xcstrings "$file" \
-        --arg source_language "$source_lang" \
-        --argjson target_languages "$LANGUAGES_JSON" \
-        '{
-            xcstrings: $xcstrings[0],
-            source_language: $source_language,
-            target_languages: $target_languages
-        }')
-
-    # Make API request
-    local response
-    response=$(curl -s -w "\n%{http_code}" \
-        -X POST \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $AUTOGLOT_API_KEY" \
-        -d "$payload" \
-        "$API_URL/v1/translate" 2>&1)
-
-    # Extract HTTP status and body
-    local http_code
-    http_code=$(echo "$response" | tail -n1)
-    local body
-    body=$(echo "$response" | sed '$d')
-
-    # Check for errors
-    if [ "$http_code" != "200" ]; then
-        local error_msg
-        error_msg=$(echo "$body" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "$body")
-        echo -e "${RED}  Error ($http_code): $error_msg${NC}"
-        echo "{\"success\": false, \"file\": \"$file\", \"error\": \"$error_msg\"}" > "$result_file"
-        return 1
-    fi
-
-    # Extract results
-    local chars
-    chars=$(echo "$body" | jq -r '.characters_used // 0')
-    local strings
-    strings=$(echo "$body" | jq -r '.strings_translated // 0')
-
-    # Write translated content back
-    echo "$body" | jq -r '.xcstrings' > "$file"
-
-    echo -e "${GREEN}  Done:${NC} $strings strings, $chars characters"
-    echo "{\"success\": true, \"file\": \"$file\", \"characters\": $chars, \"strings\": $strings}" > "$result_file"
-}
-
-export -f translate_file
-export API_URL AUTOGLOT_API_KEY LANGUAGES_JSON RED GREEN YELLOW NC
-
-# Translate files in parallel
-echo -e "${BLUE}Starting translations...${NC}"
-echo ""
-
-COUNTER=0
 for file in $FILES; do
-    COUNTER=$((COUNTER + 1))
-    result_file="$TEMP_DIR/result_$COUNTER.json"
+    echo "  - $file"
 
-    # Run in background, limit parallelism
-    translate_file "$file" "$result_file" &
+    # Strip leading ./ from path (GitHub API doesn't accept paths starting with ./)
+    clean_filename="${file#./}"
 
-    # Wait if we've hit the parallel limit
-    if [ $(jobs -r | wc -l) -ge "$PARALLEL" ]; then
-        wait -n 2>/dev/null || true
-    fi
+    # Use --slurpfile to read file content directly (avoids argument length limits)
+    jq --slurpfile content "$file" \
+       --arg filename "$clean_filename" \
+       '. + [{"filename": $filename, "content": $content[0]}]' \
+       "$TEMP_DIR/files.json" > "$TEMP_DIR/files_new.json"
+    mv "$TEMP_DIR/files_new.json" "$TEMP_DIR/files.json"
 done
 
-# Wait for all remaining jobs
-wait
-
 echo ""
-echo -e "${GREEN}All translations complete!${NC}"
-echo ""
+echo -e "${BLUE}Submitting translation job...${NC}"
 
-# Aggregate results
-TOTAL_FILES=0
-TOTAL_CHARS=0
-TOTAL_STRINGS=0
-FAILED_FILES=0
-
-for result in "$TEMP_DIR"/result_*.json; do
-    if [ -f "$result" ]; then
-        success=$(jq -r '.success' "$result")
-        if [ "$success" = "true" ]; then
-            TOTAL_FILES=$((TOTAL_FILES + 1))
-            chars=$(jq -r '.characters // 0' "$result")
-            strings=$(jq -r '.strings // 0' "$result")
-            TOTAL_CHARS=$((TOTAL_CHARS + chars))
-            TOTAL_STRINGS=$((TOTAL_STRINGS + strings))
-        else
-            FAILED_FILES=$((FAILED_FILES + 1))
-        fi
-    fi
-done
-
-echo "Summary:"
-echo "  Files translated: $TOTAL_FILES"
-echo "  Total strings:    $TOTAL_STRINGS"
-echo "  Total characters: $TOTAL_CHARS"
-
-if [ "$FAILED_FILES" -gt 0 ]; then
-    echo -e "  ${RED}Failed files: $FAILED_FILES${NC}"
+# Build the full request payload to a file (avoids argument limits for curl)
+# Include github_pat only if provided (GitHub App can be used instead)
+if [ -n "$GITHUB_PAT" ]; then
+    jq -n \
+        --slurpfile files "$TEMP_DIR/files.json" \
+        --argjson target_languages "$LANGUAGES_JSON" \
+        --arg github_repo "$GITHUB_REPO" \
+        --arg github_pat "$GITHUB_PAT" \
+        --arg github_base_branch "$BASE_BRANCH" \
+        --arg branch_name "$BRANCH" \
+        --arg commit_message "$COMMIT_MSG" \
+        --arg pr_title "$PR_TITLE_MSG" \
+        '{
+            files: $files[0],
+            target_languages: $target_languages,
+            github_repo: $github_repo,
+            github_pat: $github_pat,
+            github_base_branch: $github_base_branch,
+            branch_name: $branch_name,
+            commit_message: $commit_message,
+            pr_title: $pr_title
+        }' > "$TEMP_DIR/payload.json"
+    echo "  Using provided PAT for GitHub access"
+else
+    jq -n \
+        --slurpfile files "$TEMP_DIR/files.json" \
+        --argjson target_languages "$LANGUAGES_JSON" \
+        --arg github_repo "$GITHUB_REPO" \
+        --arg github_base_branch "$BASE_BRANCH" \
+        --arg branch_name "$BRANCH" \
+        --arg commit_message "$COMMIT_MSG" \
+        --arg pr_title "$PR_TITLE_MSG" \
+        '{
+            files: $files[0],
+            target_languages: $target_languages,
+            github_repo: $github_repo,
+            github_base_branch: $github_base_branch,
+            branch_name: $branch_name,
+            commit_message: $commit_message,
+            pr_title: $pr_title
+        }' > "$TEMP_DIR/payload.json"
+    echo "  Using Autoglot GitHub App for PR creation"
 fi
+
+# Make API request using file input (avoids argument length limits)
+response=$(curl -s -w "\n%{http_code}" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $AUTOGLOT_API_KEY" \
+    -d @"$TEMP_DIR/payload.json" \
+    "$API_URL/v1/translate" 2>&1)
+
+# Extract HTTP status and body
+http_code=$(echo "$response" | tail -n1)
+body=$(echo "$response" | sed '$d')
+
+# Check for errors
+if [ "$http_code" != "202" ] && [ "$http_code" != "200" ]; then
+    error_msg=$(echo "$body" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "$body")
+    echo -e "${RED}Error ($http_code): $error_msg${NC}"
+    exit 1
+fi
+
+# Extract job ID
+job_id=$(echo "$body" | jq -r '.job_id // "unknown"')
+
+echo ""
+echo -e "${GREEN}Translation job submitted!${NC}"
+echo ""
+echo "Job ID: $job_id"
+echo "Status: Queued"
+echo ""
+echo -e "${YELLOW}What happens next:${NC}"
+echo "  1. Autoglot translates your strings (typically completes in seconds/minutes)"
+echo "  2. A PR is automatically created with the translations"
+echo "  3. Review and merge when ready"
+echo ""
+echo "Track progress: $API_URL/v1/translate/$job_id"
 
 # Set outputs for GitHub Actions
 if [ -n "$GITHUB_OUTPUT" ]; then
-    echo "files-translated=$TOTAL_FILES" >> "$GITHUB_OUTPUT"
-    echo "total-characters=$TOTAL_CHARS" >> "$GITHUB_OUTPUT"
-    echo "total-strings=$TOTAL_STRINGS" >> "$GITHUB_OUTPUT"
+    echo "job-id=$job_id" >> "$GITHUB_OUTPUT"
+    echo "files-translated=$FILE_COUNT" >> "$GITHUB_OUTPUT"
 fi
 
-# Exit with error if any files failed
-if [ "$FAILED_FILES" -gt 0 ]; then
-    exit 1
-fi
+echo ""
+echo -e "${GREEN}Done!${NC}"

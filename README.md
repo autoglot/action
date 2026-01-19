@@ -1,24 +1,160 @@
-# Lexicon Translate Action
+# Autoglot GitHub Action
 
-Automatically translate all Xcode String Catalogs (`.xcstrings`) in your repository using [Autoglot](https://autoglot.app).
+Automatically translate your Xcode String Catalogs (`.xcstrings`) and create a PR with the results.
 
-## Features
+## How It Works
 
-- Automatically finds all `.xcstrings` files in your repo
-- Translates multiple files in parallel
-- Supports glob patterns for file selection
-- Works with any iOS/macOS project structure
+```
+YOUR REPO                                    AUTOGLOT
+─────────────────────────────────────────    ────────────────────────────────────
 
-## Usage
+1. Push .xcstrings changes
+        │
+        ▼
+2. GitHub Action runs ─────────────────────▶ 3. Receives files & queues translation
+   (this workflow)                                      │
+        │                                               ▼
+        ▼                                    4. Translates your strings
+3. Action exits                                 (typically minutes)
+   (no CI cost)                                         │
+                                                        ▼
+                                             5. Creates PR in your repo
+                                                (using GitHub App or PAT)
+                                                        │
+                                                        ▼
+                                             6. You review & merge
+```
 
-### Translate all files in repo
+**Key points:**
+- This workflow **triggers** the translation (you need to add it to your repo)
+- The GitHub App **creates the PR** (install it, or provide a PAT)
+- Translation happens **asynchronously** on our servers (no CI minutes wasted)
+
+## Setup
+
+### Step 1: Get an API Key
+
+1. Sign up at [autoglot.app](https://autoglot.app)
+2. Go to [Dashboard → API Keys](https://autoglot.app/dashboard/api-keys)
+3. Create a key and add it to your repo secrets as `AUTOGLOT_API_KEY`
+
+### Step 2: Enable PR Creation
+
+**Option A: Install GitHub App (Recommended)**
+
+1. Go to [Dashboard → GitHub](https://autoglot.app/dashboard/github)
+2. Click "Install GitHub App"
+3. Select your repository
+4. Done! No tokens to manage.
+
+**Option B: Use a Personal Access Token**
+
+1. [Create a Fine-Grained PAT](https://github.com/settings/tokens?type=beta) with:
+   - Repository access: your repo
+   - Permissions: `Contents: write`, `Pull requests: write`
+2. Add it to your repo secrets as `AUTOGLOT_PAT`
+3. Add `github-token: ${{ secrets.AUTOGLOT_PAT }}` to your workflow
+
+### Step 3: Add the Workflow
+
+Create `.github/workflows/translate.yml` in your repo:
 
 ```yaml
 name: Translate
 
 on:
   push:
-    paths: ['**/*.xcstrings']
+    paths:
+      - '**/*.xcstrings'
+  workflow_dispatch:  # Allows manual trigger
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: xzebra/autoglot@v1
+        with:
+          api-key: ${{ secrets.AUTOGLOT_API_KEY }}
+          languages: "de,fr,ja,es,zh-Hans"
+          # github-token: ${{ secrets.AUTOGLOT_PAT }}  # Only if not using GitHub App
+```
+
+That's it! Push a change to any `.xcstrings` file and a PR will appear within minutes.
+
+## Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `api-key` | Yes | - | Your Autoglot API key |
+| `languages` | Yes | - | Comma-separated target languages (e.g., `de,fr,ja`) |
+| `github-token` | No | - | PAT for PR creation. Not needed if GitHub App is installed |
+| `file` | No | `""` | Glob pattern for `.xcstrings` files (finds all if empty) |
+| `branch-name` | No | `autoglot/translations` | Branch name for the PR |
+| `base-branch` | No | `main` | Base branch for the PR |
+| `commit-message` | No | `chore(i18n): update translations` | Commit message |
+| `pull-request-title` | No | `chore(i18n): update translations` | PR title |
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `job-id` | Job ID for tracking progress |
+
+## Supported Languages
+
+| Code | Language | Code | Language |
+|------|----------|------|----------|
+| `de` | German | `ja` | Japanese |
+| `fr` | French | `ko` | Korean |
+| `es` | Spanish | `zh-Hans` | Simplified Chinese |
+| `it` | Italian | `zh-Hant` | Traditional Chinese |
+| `pt` | Portuguese | `ar` | Arabic |
+| `pt-BR` | Brazilian Portuguese | `he` | Hebrew |
+| `nl` | Dutch | `hi` | Hindi |
+| `pl` | Polish | `th` | Thai |
+| `ru` | Russian | `vi` | Vietnamese |
+| `uk` | Ukrainian | `id` | Indonesian |
+| `tr` | Turkish | `ms` | Malay |
+| `sv` | Swedish | `cs` | Czech |
+| `da` | Danish | `hu` | Hungarian |
+| `fi` | Finnish | `ro` | Romanian |
+| `nb` | Norwegian | `sk` | Slovak |
+| `el` | Greek | `bg` | Bulgarian |
+
+## Examples
+
+### Translate on Push to Main
+
+```yaml
+name: Translate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.xcstrings'
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: xzebra/autoglot@v1
+        with:
+          api-key: ${{ secrets.AUTOGLOT_API_KEY }}
+          languages: "de,fr,ja"
+```
+
+### Weekly Translation Sync
+
+```yaml
+name: Weekly Translation Sync
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday at 9 AM UTC
   workflow_dispatch:
 
 jobs:
@@ -26,116 +162,62 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Translate all xcstrings
-        uses: xzebra/autoglot@main
+      - uses: xzebra/autoglot@v1
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
-          languages: 'de,fr,ja,es,zh-Hans'
-
-      - name: Commit changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --staged --quiet || git commit -m "Update translations"
-          git push
+          languages: "de,fr,es,ja,ko,zh-Hans"
 ```
 
-### Translate specific files
+### Specific File Only
 
 ```yaml
-- uses: xzebra/autoglot@main
+- uses: xzebra/autoglot@v1
   with:
     api-key: ${{ secrets.AUTOGLOT_API_KEY }}
-    file: 'MyApp/Resources/Localizable.xcstrings'
-    languages: 'de,fr,ja'
+    languages: "de,fr"
+    file: "MyApp/Resources/Localizable.xcstrings"
 ```
 
-### Translate with glob pattern
+### Custom Branch and PR Settings
 
 ```yaml
-- uses: xzebra/autoglot@main
+- uses: xzebra/autoglot@v1
   with:
     api-key: ${{ secrets.AUTOGLOT_API_KEY }}
-    file: '**/Localizable.xcstrings'
-    languages: 'de,fr'
+    languages: "de,fr,ja"
+    branch-name: "i18n/translations"
+    base-branch: "develop"
+    commit-message: "feat(i18n): add translations"
+    pull-request-title: "Add German, French, and Japanese translations"
 ```
 
-## Inputs
+## FAQ
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `api-key` | Your Autoglot API key | Yes | - |
-| `file` | Path or glob pattern. Empty = find all | No | (all files) |
-| `languages` | Comma-separated target languages | Yes | - |
-| `api-url` | Autoglot API URL | No | `https://api.autoglot.app` |
-| `parallel` | Number of parallel translations | No | `4` |
+### How long does translation take?
 
-## Outputs
+Typically minutes. The action submits the job and exits immediately - no CI minutes wasted waiting.
 
-| Output | Description |
-|--------|-------------|
-| `files-translated` | Number of files translated |
-| `total-characters` | Total characters translated |
-| `total-strings` | Total strings translated |
+### Will it overwrite my existing translations?
 
-## Getting an API Key
+No. Autoglot only translates strings that don't have translations yet. Existing translations are preserved.
 
-1. Sign up at [autoglot.app](https://autoglot.app)
-2. Go to [Dashboard > API Keys](https://autoglot.app/dashboard/api-keys)
-3. Create a new API key
-4. Add it to your repository secrets as `AUTOGLOT_API_KEY`
+### Why can't I use GITHUB_TOKEN?
 
-## Supported Languages
+The default `GITHUB_TOKEN` only works within the GitHub Actions runner. Since Autoglot creates PRs asynchronously from our servers (after the action completes), we need either:
+- The Autoglot GitHub App (recommended)
+- A Personal Access Token
 
-`bg`, `cs`, `da`, `de`, `el`, `en`, `en-GB`, `en-US`, `es`, `et`, `fi`, `fr`, `fr-FR`, `hu`, `id`, `it`, `ja`, `ko`, `lt`, `lv`, `nb`, `nl`, `pl`, `pt-BR`, `pt-PT`, `ro`, `ru`, `sk`, `sl`, `sv`, `tr`, `uk`, `zh`, `zh-Hans`
+### What if the job fails?
 
-## Example: Create PR for review
+Check the job status at [autoglot.app/dashboard/activity](https://autoglot.app/dashboard/activity). Failed jobs include error messages.
 
-```yaml
-name: Translate (PR)
+### Can I trigger translation manually?
 
-on:
-  push:
-    branches: [main]
-    paths: ['**/*.xcstrings']
+Yes! Add `workflow_dispatch` to your workflow triggers, then use the "Run workflow" button in GitHub Actions.
 
-jobs:
-  translate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+## Links
 
-      - name: Translate
-        id: translate
-        uses: xzebra/autoglot@main
-        with:
-          api-key: ${{ secrets.AUTOGLOT_API_KEY }}
-          languages: 'de,fr,ja,es,ko,zh-Hans'
-          parallel: 6
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          title: 'Update translations'
-          body: |
-            Automated translation update.
-
-            - Files: ${{ steps.translate.outputs.files-translated }}
-            - Strings: ${{ steps.translate.outputs.total-strings }}
-            - Characters: ${{ steps.translate.outputs.total-characters }}
-          commit-message: 'chore: update translations'
-          branch: translations-update
-          delete-branch: true
-```
-
-## Pricing
-
-| Plan | Characters/month | Price |
-|------|------------------|-------|
-| Free | 10,000 | $0 |
-| Pro | 100,000 | $19.99/mo |
-| Team | 500,000 | $79.99/mo |
-
-Upgrade at [autoglot.app/dashboard/billing](https://autoglot.app/dashboard/billing)
+- [Autoglot Dashboard](https://autoglot.app/dashboard)
+- [Get API Key](https://autoglot.app/dashboard/api-keys)
+- [Install GitHub App](https://autoglot.app/dashboard/github)
+- [Report Issues](https://github.com/xzebra/autoglot/issues)

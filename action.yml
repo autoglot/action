@@ -21,29 +21,48 @@ inputs:
     description: "Autoglot API URL (default: https://api.autoglot.app)"
     required: false
     default: "https://api.autoglot.app"
-  parallel:
-    description: "Number of parallel translations (default: 4)"
+
+  # GitHub PR configuration (optional if Autoglot GitHub App is installed)
+  github-token:
+    description: "GitHub PAT for creating PRs (optional if GitHub App is installed)"
     required: false
-    default: "4"
+    default: ""
+  branch-name:
+    description: "Branch name for translations"
+    required: false
+    default: "autoglot/translations"
+  base-branch:
+    description: "Base branch to create PR against"
+    required: false
+    default: "main"
+  commit-message:
+    description: "Commit message for translation updates"
+    required: false
+    default: "chore(i18n): update translations"
+  pull-request-title:
+    description: "PR title for translation updates"
+    required: false
+    default: "chore(i18n): update translations"
 
 outputs:
-  files-translated:
-    description: "Number of files translated"
-  total-characters:
-    description: "Total characters translated"
-  total-strings:
-    description: "Total strings translated"
+  job-id:
+    description: "Batch job ID for tracking"
 
 runs:
   using: "composite"
   steps:
-    - name: Translate
+    - name: Submit Translation Job
       shell: bash
       env:
         AUTOGLOT_API_KEY: ${{ inputs.api-key }}
         AUTOGLOT_API_URL: ${{ inputs.api-url }}
         INPUT_FILE: ${{ inputs.file }}
         TARGET_LANGUAGES: ${{ inputs.languages }}
-        PARALLEL_JOBS: ${{ inputs.parallel }}
+        GITHUB_PAT: ${{ inputs.github-token }}
+        GITHUB_REPO: ${{ github.repository }}
+        GITHUB_BASE_BRANCH: ${{ inputs.base-branch }}
+        BRANCH_NAME: ${{ inputs.branch-name }}
+        COMMIT_MESSAGE: ${{ inputs.commit-message }}
+        PR_TITLE: ${{ inputs.pull-request-title }}
       run: |
         ${{ github.action_path }}/translate.sh
