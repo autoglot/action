@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: xzebra/autoglot@v1
+      - uses: autoglot/action@v1
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,ja,es,zh-Hans"
@@ -141,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: xzebra/autoglot@v1
+      - uses: autoglot/action@v1
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,ja"
@@ -162,7 +162,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: xzebra/autoglot@v1
+      - uses: autoglot/action@v1
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,es,ja,ko,zh-Hans"
@@ -171,7 +171,7 @@ jobs:
 ### Specific File Only
 
 ```yaml
-- uses: xzebra/autoglot@v1
+- uses: autoglot/action@v1
   with:
     api-key: ${{ secrets.AUTOGLOT_API_KEY }}
     languages: "de,fr"
@@ -181,7 +181,7 @@ jobs:
 ### Custom Branch and PR Settings
 
 ```yaml
-- uses: xzebra/autoglot@v1
+- uses: autoglot/action@v1
   with:
     api-key: ${{ secrets.AUTOGLOT_API_KEY }}
     languages: "de,fr,ja"
