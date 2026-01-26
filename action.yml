@@ -1,6 +1,6 @@
 name: "Autoglot Translate"
 description: "Translate Xcode String Catalogs (.xcstrings) using Autoglot"
-author: "xzebra"
+author: "autoglot"
 
 branding:
   icon: "globe"
