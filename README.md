@@ -1,6 +1,6 @@
 # Autoglot GitHub Action
 
-Automatically translate your Xcode String Catalogs (`.xcstrings`) and create a PR with the results.
+Automatically translate your Xcode String Catalogs (`.xcstrings`) and web localization files (JSON, YAML) and create a PR with the results.
 
 ## How It Works
 
@@ -8,7 +8,7 @@ Automatically translate your Xcode String Catalogs (`.xcstrings`) and create a P
 YOUR REPO                                    AUTOGLOT
 ─────────────────────────────────────────    ────────────────────────────────────
 
-1. Push .xcstrings changes
+1. Push translation file changes
         │
         ▼
 2. GitHub Action runs ─────────────────────▶ 3. Receives files & queues translation
@@ -18,7 +18,7 @@ YOUR REPO                                    AUTOGLOT
 3. Action exits                                 (typically minutes)
    (no CI cost)                                         │
                                                         ▼
-                                             5. Creates PR in your repo
+                                             5. Creates PR or commits to branch
                                                 (using GitHub App or PAT)
                                                         │
                                                         ▼
@@ -64,6 +64,7 @@ name: Translate
 
 on:
   push:
+    branches: [main]
     paths:
       - '**/*.xcstrings'
   workflow_dispatch:  # Allows manual trigger
@@ -90,8 +91,10 @@ That's it! Push a change to any `.xcstrings` file and a PR will appear within mi
 | `api-key` | Yes | - | Your Autoglot API key |
 | `languages` | Yes | - | Comma-separated target languages (e.g., `de,fr,ja`) |
 | `github-token` | No | - | PAT for PR creation. Not needed if GitHub App is installed |
-| `file` | No | `""` | Glob pattern for `.xcstrings` files (finds all if empty) |
-| `branch-name` | No | `autoglot/translations` | Branch name for the PR |
+| `paths` | No | `""` | Paths to search for translation files. Finds all `.xcstrings` if empty |
+| `output-mode` | No | `create-pr` | `create-pr` creates a new PR, `commit-to-branch` commits to existing PR branch |
+| `head-branch` | No | PR branch | Branch to commit to (auto-detected in PR context) |
+| `branch-name` | No | `autoglot/translations` | Branch name for new PRs |
 | `base-branch` | No | `main` | Base branch for the PR |
 | `commit-message` | No | `chore(i18n): update translations` | Commit message |
 | `pull-request-title` | No | `chore(i18n): update translations` | PR title |
@@ -101,6 +104,16 @@ That's it! Push a change to any `.xcstrings` file and a PR will appear within mi
 | Output | Description |
 |--------|-------------|
 | `job-id` | Job ID for tracking progress |
+
+## Supported File Formats
+
+| Format | Extension | Notes |
+|--------|-----------|-------|
+| Xcode String Catalog | `.xcstrings` | Native iOS/macOS localization |
+| JSON | `.json` | Web apps (i18next, etc.) |
+| YAML | `.yml`, `.yaml` | Rails i18n, etc. |
+
+For web formats, autoglot automatically finds source language files (`en.json`, `en.yml`) and generates translations for each target language.
 
 ## Supported Languages
 
@@ -125,7 +138,7 @@ That's it! Push a change to any `.xcstrings` file and a PR will appear within mi
 
 ## Examples
 
-### Translate on Push to Main
+### iOS: Translate on Push to Main
 
 ```yaml
 name: Translate
@@ -147,6 +160,32 @@ jobs:
           languages: "de,fr,ja"
 ```
 
+### Web: Translate JSON on PR
+
+Translate web localization files and commit directly to the PR branch:
+
+```yaml
+name: Translate Web
+
+on:
+  pull_request:
+    paths:
+      - "src/locales/**"
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: autoglot/action@v1
+        with:
+          api-key: ${{ secrets.AUTOGLOT_API_KEY }}
+          paths: "src/locales"
+          languages: "de,fr,es,ja"
+          output-mode: commit-to-branch
+          commit-message: "chore(i18n): update translations"
+```
+
 ### Weekly Translation Sync
 
 ```yaml
@@ -166,16 +205,6 @@ jobs:
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,es,ja,ko,zh-Hans"
-```
-
-### Specific File Only
-
-```yaml
-- uses: autoglot/action@v1
-  with:
-    api-key: ${{ secrets.AUTOGLOT_API_KEY }}
-    languages: "de,fr"
-    file: "MyApp/Resources/Localizable.xcstrings"
 ```
 
 ### Custom Branch and PR Settings
@@ -220,4 +249,4 @@ Yes! Add `workflow_dispatch` to your workflow triggers, then use the "Run workfl
 - [Autoglot Dashboard](https://autoglot.app/dashboard)
 - [Get API Key](https://autoglot.app/dashboard/api-keys)
 - [Install GitHub App](https://autoglot.app/dashboard/github)
-- [Report Issues](https://github.com/xzebra/autoglot/issues)
+- [Report Issues](https://github.com/autoglot/action/issues)

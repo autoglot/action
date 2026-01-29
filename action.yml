@@ -1,5 +1,5 @@
 name: "Autoglot Translate"
-description: "Translate Xcode String Catalogs (.xcstrings) using Autoglot"
+description: "Translate Xcode String Catalogs (.xcstrings) and web localization files using Autoglot"
 author: "autoglot"
 
 branding:
@@ -10,8 +10,8 @@ inputs:
   api-key:
     description: "Your Autoglot API key (get one at https://autoglot.app/dashboard/api-keys)"
     required: true
-  file:
-    description: "Path to .xcstrings file(s). Use glob pattern or leave empty to find all"
+  paths:
+    description: "Paths to search for translation files. Supports glob patterns. Leave empty to find all .xcstrings files."
     required: false
     default: ""
   languages:
@@ -28,7 +28,7 @@ inputs:
     required: false
     default: ""
   branch-name:
-    description: "Branch name for translations"
+    description: "Branch name for translations (ignored when output-mode is commit-to-branch)"
     required: false
     default: "autoglot/translations"
   base-branch:
@@ -40,9 +40,17 @@ inputs:
     required: false
     default: "chore(i18n): update translations"
   pull-request-title:
-    description: "PR title for translation updates"
+    description: "PR title for translation updates (ignored when output-mode is commit-to-branch)"
     required: false
     default: "chore(i18n): update translations"
+  output-mode:
+    description: "Output mode: 'create-pr' (default) creates a new PR, 'commit-to-branch' commits to existing PR branch"
+    required: false
+    default: "create-pr"
+  head-branch:
+    description: "PR head branch to commit to (required when output-mode is commit-to-branch)"
+    required: false
+    default: ""
 
 outputs:
   job-id:
@@ -56,7 +64,7 @@ runs:
       env:
         AUTOGLOT_API_KEY: ${{ inputs.api-key }}
         AUTOGLOT_API_URL: ${{ inputs.api-url }}
-        INPUT_FILE: ${{ inputs.file }}
+        INPUT_PATHS: ${{ inputs.paths }}
         TARGET_LANGUAGES: ${{ inputs.languages }}
         GITHUB_PAT: ${{ inputs.github-token }}
         GITHUB_REPO: ${{ github.repository }}
@@ -64,5 +72,8 @@ runs:
         BRANCH_NAME: ${{ inputs.branch-name }}
         COMMIT_MESSAGE: ${{ inputs.commit-message }}
         PR_TITLE: ${{ inputs.pull-request-title }}
+        OUTPUT_MODE: ${{ inputs.output-mode }}
+        HEAD_BRANCH: ${{ inputs.head-branch || github.head_ref }}
+        TRIGGER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       run: |
         ${{ github.action_path }}/translate.sh

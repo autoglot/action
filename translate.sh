@@ -32,9 +32,17 @@ BRANCH="${BRANCH_NAME:-autoglot/translations}"
 BASE_BRANCH="${GITHUB_BASE_BRANCH:-main}"
 COMMIT_MSG="${COMMIT_MESSAGE:-chore(i18n): update translations}"
 PR_TITLE_MSG="${PR_TITLE:-chore(i18n): update translations}"
+OUTPUT_MODE_VAL="${OUTPUT_MODE:-create-pr}"
+HEAD_BRANCH_VAL="${HEAD_BRANCH:-}"
+TRIGGER_SHA_VAL="${TRIGGER_SHA:-}"
 
 echo "Repository: $GITHUB_REPO"
-echo "Branch: $BRANCH"
+echo "Output mode: $OUTPUT_MODE_VAL"
+if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
+    echo "Head branch: $HEAD_BRANCH_VAL"
+else
+    echo "Branch: $BRANCH"
+fi
 echo "Base branch: $BASE_BRANCH"
 echo "Languages: $TARGET_LANGUAGES"
 echo ""
@@ -50,17 +58,41 @@ if echo "$COMMIT_AUTHOR" | grep -qi "autoglot\[bot\]"; then
     exit 0
 fi
 
-# Find all .xcstrings files
-if [ -z "$INPUT_FILE" ]; then
+# Find translation files
+if [ -z "$INPUT_PATHS" ]; then
     echo "Searching for .xcstrings files..."
     FILES=$(find . -name "*.xcstrings" -type f | grep -v "node_modules" | grep -v ".build" | sort)
 else
-    # Support glob patterns
-    FILES=$(ls $INPUT_FILE 2>/dev/null || echo "")
+    echo "Searching in paths: $INPUT_PATHS"
+    FILES=""
+
+    # Process each path pattern
+    for pattern in $INPUT_PATHS; do
+        # Find .xcstrings files
+        XCSTRINGS=$(find $pattern -name "*.xcstrings" -type f 2>/dev/null | grep -v "node_modules" | grep -v ".build" || echo "")
+        if [ -n "$XCSTRINGS" ]; then
+            FILES="$FILES"$'\n'"$XCSTRINGS"
+        fi
+
+        # Find source language JSON files (en.json only, not translated files)
+        JSON_FILES=$(find $pattern -name "en.json" -type f 2>/dev/null | grep -v "node_modules" || echo "")
+        if [ -n "$JSON_FILES" ]; then
+            FILES="$FILES"$'\n'"$JSON_FILES"
+        fi
+
+        # Find source language YAML files (en.yml, en.yaml only)
+        YAML_FILES=$(find $pattern \( -name "en.yml" -o -name "en.yaml" \) -type f 2>/dev/null | grep -v "node_modules" || echo "")
+        if [ -n "$YAML_FILES" ]; then
+            FILES="$FILES"$'\n'"$YAML_FILES"
+        fi
+    done
+
+    # Clean up empty lines and sort
+    FILES=$(echo "$FILES" | grep -v "^$" | sort -u)
 fi
 
 if [ -z "$FILES" ]; then
-    echo -e "${YELLOW}No .xcstrings files found${NC}"
+    echo -e "${YELLOW}No translation files found${NC}"
     exit 0
 fi
 
@@ -96,6 +128,12 @@ done
 echo ""
 echo -e "${BLUE}Submitting translation job...${NC}"
 
+# Normalize output mode for API (convert kebab-case to snake_case)
+API_OUTPUT_MODE="create_pr"
+if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
+    API_OUTPUT_MODE="commit_to_branch"
+fi
+
 # Build the full request payload to a file (avoids argument limits for curl)
 # Include github_pat only if provided (GitHub App can be used instead)
 if [ -n "$GITHUB_PAT" ]; then
@@ -108,6 +146,9 @@ if [ -n "$GITHUB_PAT" ]; then
         --arg branch_name "$BRANCH" \
         --arg commit_message "$COMMIT_MSG" \
         --arg pr_title "$PR_TITLE_MSG" \
+        --arg output_mode "$API_OUTPUT_MODE" \
+        --arg github_head_branch "$HEAD_BRANCH_VAL" \
+        --arg trigger_sha "$TRIGGER_SHA_VAL" \
         '{
             files: $files[0],
             target_languages: $target_languages,
@@ -116,8 +157,10 @@ if [ -n "$GITHUB_PAT" ]; then
             github_base_branch: $github_base_branch,
             branch_name: $branch_name,
             commit_message: $commit_message,
-            pr_title: $pr_title
-        }' > "$TEMP_DIR/payload.json"
+            pr_title: $pr_title,
+            output_mode: $output_mode
+        } + (if $github_head_branch != "" then {github_head_branch: $github_head_branch} else {} end)
+          + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)' > "$TEMP_DIR/payload.json"
     echo "  Using provided PAT for GitHub access"
 else
     jq -n \
@@ -128,6 +171,9 @@ else
         --arg branch_name "$BRANCH" \
         --arg commit_message "$COMMIT_MSG" \
         --arg pr_title "$PR_TITLE_MSG" \
+        --arg output_mode "$API_OUTPUT_MODE" \
+        --arg github_head_branch "$HEAD_BRANCH_VAL" \
+        --arg trigger_sha "$TRIGGER_SHA_VAL" \
         '{
             files: $files[0],
             target_languages: $target_languages,
@@ -135,8 +181,10 @@ else
             github_base_branch: $github_base_branch,
             branch_name: $branch_name,
             commit_message: $commit_message,
-            pr_title: $pr_title
-        }' > "$TEMP_DIR/payload.json"
+            pr_title: $pr_title,
+            output_mode: $output_mode
+        } + (if $github_head_branch != "" then {github_head_branch: $github_head_branch} else {} end)
+          + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)' > "$TEMP_DIR/payload.json"
     echo "  Using Autoglot GitHub App for PR creation"
 fi
 
@@ -170,7 +218,11 @@ echo "Status: Queued"
 echo ""
 echo -e "${YELLOW}What happens next:${NC}"
 echo "  1. Autoglot translates your strings (typically completes in seconds/minutes)"
-echo "  2. A PR is automatically created with the translations"
+if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
+    echo "  2. Translations are committed to your PR branch"
+else
+    echo "  2. A PR is automatically created with the translations"
+fi
 echo "  3. Review and merge when ready"
 echo ""
 echo "Track progress: $API_URL/v1/translate/$job_id"
