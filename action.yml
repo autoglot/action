@@ -51,10 +51,18 @@ inputs:
     description: "PR head branch to commit to (required when output-mode is commit-to-branch)"
     required: false
     default: ""
+  wait-for-completion:
+    description: "Wait for translation job to complete before exiting. Defaults to true for commit-to-branch mode, false otherwise."
+    required: false
+    default: ""
 
 outputs:
   job-id:
-    description: "Batch job ID for tracking"
+    description: "Batch job ID for tracking (or 'skipped' if this was our own commit)"
+  skipped:
+    description: "Whether the translation was skipped (true if triggered by our own commit)"
+  pr-number:
+    description: "Pull request number (if wait-for-completion is enabled and PR was created)"
 
 runs:
   using: "composite"
@@ -75,5 +83,6 @@ runs:
         OUTPUT_MODE: ${{ inputs.output-mode }}
         HEAD_BRANCH: ${{ inputs.head-branch || github.head_ref }}
         TRIGGER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        WAIT_FOR_COMPLETION: ${{ inputs.wait-for-completion }}
       run: |
         ${{ github.action_path }}/translate.sh

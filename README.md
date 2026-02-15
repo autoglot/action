@@ -75,7 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: autoglot/action@v1
+      - uses: autoglot/action@v2
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,ja,es,zh-Hans"
@@ -112,6 +112,7 @@ That's it! Push a change to any `.xcstrings` file and a PR will appear within mi
 | Xcode String Catalog | `.xcstrings` | Native iOS/macOS localization |
 | JSON | `.json` | Web apps (i18next, etc.) |
 | YAML | `.yml`, `.yaml` | Rails i18n, etc. |
+| PO/POT | `.po`, `.pot` | GNU gettext |
 
 For web formats, autoglot automatically finds source language files (`en.json`, `en.yml`) and generates translations for each target language.
 
@@ -154,7 +155,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: autoglot/action@v1
+      - uses: autoglot/action@v2
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,ja"
@@ -177,7 +178,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: autoglot/action@v1
+      - uses: autoglot/action@v2
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           paths: "src/locales"
@@ -201,7 +202,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: autoglot/action@v1
+      - uses: autoglot/action@v2
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,es,ja,ko,zh-Hans"
@@ -210,7 +211,7 @@ jobs:
 ### Custom Branch and PR Settings
 
 ```yaml
-- uses: autoglot/action@v1
+- uses: autoglot/action@v2
   with:
     api-key: ${{ secrets.AUTOGLOT_API_KEY }}
     languages: "de,fr,ja"

@@ -36,6 +36,15 @@ OUTPUT_MODE_VAL="${OUTPUT_MODE:-create-pr}"
 HEAD_BRANCH_VAL="${HEAD_BRANCH:-}"
 TRIGGER_SHA_VAL="${TRIGGER_SHA:-}"
 
+# Wait for completion defaults to true for commit-to-branch mode
+if [ -n "$WAIT_FOR_COMPLETION" ]; then
+    WAIT_FOR_COMPLETION_VAL="$WAIT_FOR_COMPLETION"
+elif [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
+    WAIT_FOR_COMPLETION_VAL="true"
+else
+    WAIT_FOR_COMPLETION_VAL="false"
+fi
+
 echo "Repository: $GITHUB_REPO"
 echo "Output mode: $OUTPUT_MODE_VAL"
 if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
@@ -85,6 +94,18 @@ else
         if [ -n "$YAML_FILES" ]; then
             FILES="$FILES"$'\n'"$YAML_FILES"
         fi
+
+        # Find source language PO files (en.po only, not translated files)
+        PO_FILES=$(find $pattern -name "en.po" -type f 2>/dev/null | grep -v "node_modules" || echo "")
+        if [ -n "$PO_FILES" ]; then
+            FILES="$FILES"$'\n'"$PO_FILES"
+        fi
+
+        # Find POT template files (messages.pot, etc.)
+        POT_FILES=$(find $pattern -name "*.pot" -type f 2>/dev/null | grep -v "node_modules" || echo "")
+        if [ -n "$POT_FILES" ]; then
+            FILES="$FILES"$'\n'"$POT_FILES"
+        fi
     done
 
     # Clean up empty lines and sort
@@ -117,11 +138,23 @@ for file in $FILES; do
     # Strip leading ./ from path (GitHub API doesn't accept paths starting with ./)
     clean_filename="${file#./}"
 
-    # Use --slurpfile to read file content directly (avoids argument length limits)
-    jq --slurpfile content "$file" \
-       --arg filename "$clean_filename" \
-       '. + [{"filename": $filename, "content": $content[0]}]' \
-       "$TEMP_DIR/files.json" > "$TEMP_DIR/files_new.json"
+    # Detect if file is JSON (xcstrings, json) or plain text (po, pot, yaml, yml)
+    case "$file" in
+        *.xcstrings|*.json)
+            # JSON files: use --slurpfile to read as structured JSON
+            jq --slurpfile content "$file" \
+               --arg filename "$clean_filename" \
+               '. + [{"filename": $filename, "content": $content[0]}]' \
+               "$TEMP_DIR/files.json" > "$TEMP_DIR/files_new.json"
+            ;;
+        *)
+            # Plain text files (PO, YAML, etc.): read as raw string
+            jq --rawfile content "$file" \
+               --arg filename "$clean_filename" \
+               '. + [{"filename": $filename, "content": $content}]' \
+               "$TEMP_DIR/files.json" > "$TEMP_DIR/files_new.json"
+            ;;
+    esac
     mv "$TEMP_DIR/files_new.json" "$TEMP_DIR/files.json"
 done
 
@@ -207,6 +240,27 @@ if [ "$http_code" != "202" ] && [ "$http_code" != "200" ]; then
     exit 1
 fi
 
+# Check if this was skipped (our own commit triggered this)
+skipped=$(echo "$body" | jq -r '.skipped // false' 2>/dev/null)
+if [ "$skipped" = "true" ]; then
+    reason=$(echo "$body" | jq -r '.reason // "unknown"' 2>/dev/null)
+    echo ""
+    echo -e "${YELLOW}Skipped: This commit was made by autoglot${NC}"
+    echo "Reason: $reason"
+    echo ""
+    echo "This prevents infinite translation loops."
+
+    # Set outputs for GitHub Actions
+    if [ -n "$GITHUB_OUTPUT" ]; then
+        echo "job-id=skipped" >> "$GITHUB_OUTPUT"
+        echo "skipped=true" >> "$GITHUB_OUTPUT"
+    fi
+
+    echo ""
+    echo -e "${GREEN}Done!${NC}"
+    exit 0
+fi
+
 # Extract job ID
 job_id=$(echo "$body" | jq -r '.job_id // "unknown"')
 
@@ -215,22 +269,79 @@ echo -e "${GREEN}Translation job submitted!${NC}"
 echo ""
 echo "Job ID: $job_id"
 echo "Status: Queued"
-echo ""
-echo -e "${YELLOW}What happens next:${NC}"
-echo "  1. Autoglot translates your strings (typically completes in seconds/minutes)"
-if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
-    echo "  2. Translations are committed to your PR branch"
-else
-    echo "  2. A PR is automatically created with the translations"
-fi
-echo "  3. Review and merge when ready"
-echo ""
-echo "Track progress: $API_URL/v1/translate/$job_id"
 
 # Set outputs for GitHub Actions
 if [ -n "$GITHUB_OUTPUT" ]; then
     echo "job-id=$job_id" >> "$GITHUB_OUTPUT"
     echo "files-translated=$FILE_COUNT" >> "$GITHUB_OUTPUT"
+fi
+
+# Wait for completion if enabled
+if [ "$WAIT_FOR_COMPLETION_VAL" = "true" ] && [ "$job_id" != "unknown" ]; then
+    echo ""
+    echo -e "${BLUE}Waiting for translation to complete...${NC}"
+
+    MAX_WAIT=300  # 5 minutes max
+    POLL_INTERVAL=5
+    elapsed=0
+
+    while [ $elapsed -lt $MAX_WAIT ]; do
+        sleep $POLL_INTERVAL
+        elapsed=$((elapsed + POLL_INTERVAL))
+
+        # Poll job status
+        status_response=$(curl -s \
+            -H "Authorization: Bearer $AUTOGLOT_API_KEY" \
+            "$API_URL/v1/translate/$job_id" 2>&1)
+
+        status=$(echo "$status_response" | jq -r '.status // "unknown"' 2>/dev/null)
+        progress=$(echo "$status_response" | jq -r '.progress // 0' 2>/dev/null)
+
+        case "$status" in
+            "completed")
+                echo -e "${GREEN}✓ Translation completed!${NC}"
+                pr_number=$(echo "$status_response" | jq -r '.github_pr_number // empty' 2>/dev/null)
+                if [ -n "$pr_number" ]; then
+                    echo "PR #$pr_number created"
+                    if [ -n "$GITHUB_OUTPUT" ]; then
+                        echo "pr-number=$pr_number" >> "$GITHUB_OUTPUT"
+                    fi
+                fi
+                break
+                ;;
+            "failed")
+                error_msg=$(echo "$status_response" | jq -r '.error_message // "Unknown error"' 2>/dev/null)
+                echo -e "${RED}✗ Translation failed: $error_msg${NC}"
+                exit 1
+                ;;
+            "cancelled")
+                echo -e "${YELLOW}Translation was cancelled${NC}"
+                exit 0
+                ;;
+            *)
+                # Still processing - show progress
+                printf "\r  Progress: %s%% (${elapsed}s elapsed)" "$progress"
+                ;;
+        esac
+    done
+
+    if [ $elapsed -ge $MAX_WAIT ]; then
+        echo ""
+        echo -e "${YELLOW}Timed out waiting for completion. Job is still processing.${NC}"
+        echo "Track progress: $API_URL/v1/translate/$job_id"
+    fi
+else
+    echo ""
+    echo -e "${YELLOW}What happens next:${NC}"
+    echo "  1. Autoglot translates your strings (typically completes in seconds/minutes)"
+    if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
+        echo "  2. Translations are committed to your PR branch"
+    else
+        echo "  2. A PR is automatically created with the translations"
+    fi
+    echo "  3. Review and merge when ready"
+    echo ""
+    echo "Track progress: $API_URL/v1/translate/$job_id"
 fi
 
 echo ""
