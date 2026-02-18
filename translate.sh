@@ -48,7 +48,11 @@ fi
 echo "Repository: $GITHUB_REPO"
 echo "Output mode: $OUTPUT_MODE_VAL"
 if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
-    echo "Head branch: $HEAD_BRANCH_VAL"
+    if [ -n "$HEAD_BRANCH_VAL" ]; then
+        echo "Head branch: $HEAD_BRANCH_VAL"
+    else
+        echo "Head branch: $BASE_BRANCH (default)"
+    fi
 else
     echo "Branch: $BRANCH"
 fi
@@ -335,7 +339,11 @@ else
     echo -e "${YELLOW}What happens next:${NC}"
     echo "  1. Autoglot translates your strings (typically completes in seconds/minutes)"
     if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
-        echo "  2. Translations are committed to your PR branch"
+        if [ -n "$HEAD_BRANCH_VAL" ]; then
+            echo "  2. Translations are committed to branch '$HEAD_BRANCH_VAL'"
+        else
+            echo "  2. Translations are committed directly to '$BASE_BRANCH'"
+        fi
     else
         echo "  2. A PR is automatically created with the translations"
     fi

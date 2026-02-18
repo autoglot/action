@@ -44,11 +44,11 @@ inputs:
     required: false
     default: "chore(i18n): update translations"
   output-mode:
-    description: "Output mode: 'create-pr' (default) creates a new PR, 'commit-to-branch' commits to existing PR branch"
+    description: "Output mode: 'create-pr' (default) creates a new PR, 'commit-to-branch' commits directly to a branch. Omit head-branch to commit directly to base-branch."
     required: false
     default: "create-pr"
   head-branch:
-    description: "PR head branch to commit to (required when output-mode is commit-to-branch)"
+    description: "Branch to commit translations to. Defaults to base-branch when output-mode is commit-to-branch."
     required: false
     default: ""
   wait-for-completion:
