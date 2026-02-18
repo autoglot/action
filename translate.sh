@@ -289,36 +289,53 @@ if [ "$WAIT_FOR_COMPLETION_VAL" = "true" ] && [ "$job_id" != "unknown" ]; then
     POLL_INTERVAL=5
     elapsed=0
 
+    poll_failures=0
+
     while [ $elapsed -lt $MAX_WAIT ]; do
         sleep $POLL_INTERVAL
         elapsed=$((elapsed + POLL_INTERVAL))
 
-        # Poll job status
-        status_response=$(curl -s \
+        # Poll job status (tolerate transient network failures)
+        if ! status_response=$(curl -s \
             -H "Authorization: Bearer $AUTOGLOT_API_KEY" \
-            "$API_URL/v1/translate/$job_id" 2>&1)
+            "$API_URL/v1/translate/$job_id" 2>&1); then
+            poll_failures=$((poll_failures + 1))
+            if [ $poll_failures -ge 3 ]; then
+                echo -e "${RED}Failed to reach API after $poll_failures attempts${NC}"
+                exit 1
+            fi
+            printf "\r  Retrying... (%d/${poll_failures} failures)" "$poll_failures"
+            continue
+        fi
 
-        status=$(echo "$status_response" | jq -r '.status // "unknown"' 2>/dev/null)
-        progress=$(echo "$status_response" | jq -r '.progress // 0' 2>/dev/null)
+        status=$(echo "$status_response" | jq -r '.status // "unknown"' 2>/dev/null) || status="unknown"
+        progress=$(echo "$status_response" | jq -r '.progress // 0' 2>/dev/null) || progress="0"
+        poll_failures=0
 
         case "$status" in
             "completed")
+                echo ""
                 echo -e "${GREEN}✓ Translation completed!${NC}"
-                pr_number=$(echo "$status_response" | jq -r '.github_pr_number // empty' 2>/dev/null)
+                pr_number=$(echo "$status_response" | jq -r '.github_pr_number // empty' 2>/dev/null) || true
+                commit_sha=$(echo "$status_response" | jq -r '.github_commit_sha // empty' 2>/dev/null) || true
                 if [ -n "$pr_number" ]; then
                     echo "PR #$pr_number created"
                     if [ -n "$GITHUB_OUTPUT" ]; then
                         echo "pr-number=$pr_number" >> "$GITHUB_OUTPUT"
                     fi
+                elif [ -n "$commit_sha" ]; then
+                    echo "Committed to ${HEAD_BRANCH_VAL:-$BASE_BRANCH} ($commit_sha)"
                 fi
                 break
                 ;;
             "failed")
-                error_msg=$(echo "$status_response" | jq -r '.error_message // "Unknown error"' 2>/dev/null)
+                echo ""
+                error_msg=$(echo "$status_response" | jq -r '.error_message // "Unknown error"' 2>/dev/null) || error_msg="Unknown error"
                 echo -e "${RED}✗ Translation failed: $error_msg${NC}"
                 exit 1
                 ;;
             "cancelled")
+                echo ""
                 echo -e "${YELLOW}Translation was cancelled${NC}"
                 exit 0
                 ;;
