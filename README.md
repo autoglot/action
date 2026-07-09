@@ -1,11 +1,11 @@
-# Autoglot GitHub Action
+# autoglot GitHub action
 
-Automatically translate your Xcode String Catalogs (`.xcstrings`) and web localization files (JSON, YAML) and create a PR with the results.
+Automatically translate Xcode String Catalogs (`.xcstrings`), Android string resources (`res/values/*.xml`), and web localization files (JSON, YAML, PO/POT) and create a PR with the results.
 
 ## How It Works
 
 ```
-YOUR REPO                                    AUTOGLOT
+YOUR REPO                                    autoglot
 ─────────────────────────────────────────    ────────────────────────────────────
 
 1. Push translation file changes
@@ -82,16 +82,16 @@ jobs:
           # github-token: ${{ secrets.AUTOGLOT_PAT }}  # Only if not using GitHub App
 ```
 
-That's it! Push a change to any `.xcstrings` file and a PR will appear within minutes.
+That's it! Push a change to a `.xcstrings` file and a PR will appear within minutes.
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `api-key` | Yes | - | Your Autoglot API key |
+| `api-key` | Yes | - | Your autoglot API key |
 | `languages` | Yes | - | Comma-separated target languages (e.g., `de,fr,ja`) |
 | `github-token` | No | - | PAT for PR creation. Not needed if GitHub App is installed |
-| `paths` | No | `""` | Paths to search for translation files. Finds all `.xcstrings` if empty |
+| `paths` | No | `""` | Paths to search for translation files. Leave empty to find `.xcstrings` files only. Set this to search for other source formats (JSON, YAML, PO/POT, and Android `res/values` string resources) |
 | `output-mode` | No | `create-pr` | `create-pr` creates a new PR, `commit-to-branch` commits to existing PR branch |
 | `head-branch` | No | PR branch | Branch to commit to (auto-detected in PR context) |
 | `branch-name` | No | `autoglot/translations` | Branch name for new PRs |
@@ -113,8 +113,11 @@ That's it! Push a change to any `.xcstrings` file and a PR will appear within mi
 | JSON | `.json` | Web apps (i18next, etc.) |
 | YAML | `.yml`, `.yaml` | Rails i18n, etc. |
 | PO/POT | `.po`, `.pot` | GNU gettext |
+| Android string resources | `.xml` | `res/values/*.xml` files with `<string>`, `<string-array>`, and `<plurals>` resources |
 
-For web formats, autoglot automatically finds source language files (`en.json`, `en.yml`) and generates translations for each target language.
+For one-file-per-language formats, autoglot automatically finds the source files within configured `paths` and generates translations for each target language: web files (`en.json`, `en.yml`, `en.po`) and Android base string resources (`res/values/*.xml` — translated `values-<locale>` dirs are ignored). Only real string resources are picked up, so other `res/values` files such as `colors.xml` or `styles.xml` are skipped.
+
+Leaving `paths` empty searches for `.xcstrings` files only. To translate any other format — including Android — set `paths` to the directory (or glob) containing your source files.
 
 ## Supported Languages
 
@@ -159,6 +162,29 @@ jobs:
         with:
           api-key: ${{ secrets.AUTOGLOT_API_KEY }}
           languages: "de,fr,ja"
+```
+
+### Android: translate string resources
+
+```yaml
+name: Translate Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/res/values/*.xml'
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: autoglot/action@v2
+        with:
+          api-key: ${{ secrets.AUTOGLOT_API_KEY }}
+          paths: "app/src/main/res/values"
+          languages: "de,fr,pt-BR,zh-Hans"
 ```
 
 ### Web: Translate JSON on PR
@@ -229,12 +255,12 @@ Typically minutes. The action submits the job and exits immediately - no CI minu
 
 ### Will it overwrite my existing translations?
 
-No. Autoglot only translates strings that don't have translations yet. Existing translations are preserved.
+No. autoglot only translates strings that don't have translations yet. Existing translations are preserved.
 
 ### Why can't I use GITHUB_TOKEN?
 
-The default `GITHUB_TOKEN` only works within the GitHub Actions runner. Since Autoglot creates PRs asynchronously from our servers (after the action completes), we need either:
-- The Autoglot GitHub App (recommended)
+The default `GITHUB_TOKEN` only works within the GitHub Actions runner. Since autoglot creates PRs asynchronously from our servers (after the action completes), we need either:
+- The autoglot GitHub App (recommended)
 - A Personal Access Token
 
 ### What if the job fails?
@@ -247,7 +273,7 @@ Yes! Add `workflow_dispatch` to your workflow triggers, then use the "Run workfl
 
 ## Links
 
-- [Autoglot Dashboard](https://autoglot.app/dashboard)
+- [autoglot Dashboard](https://autoglot.app/dashboard)
 - [Get API Key](https://autoglot.app/dashboard/api-keys)
 - [Install GitHub App](https://autoglot.app/dashboard/github)
 - [Report Issues](https://github.com/autoglot/action/issues)

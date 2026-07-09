@@ -8,7 +8,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}Autoglot Translate${NC}"
+echo -e "${GREEN}autoglot translate${NC}"
 echo "=================="
 
 # Validate inputs
@@ -73,8 +73,9 @@ fi
 
 # Find translation files
 if [ -z "$INPUT_PATHS" ]; then
-    echo "Searching for .xcstrings files..."
-    FILES=$(find . -name "*.xcstrings" -type f | grep -v "node_modules" | grep -v ".build" | sort)
+    echo "Searching for translation files..."
+    XCSTRINGS_FILES=$(find . -name "*.xcstrings" -type f | grep -v "node_modules" | grep -v ".build" || echo "")
+    FILES=$(printf "%s\n" "$XCSTRINGS_FILES" | grep -v "^$" | sort -u)
 else
     echo "Searching in paths: $INPUT_PATHS"
     FILES=""
@@ -110,6 +111,19 @@ else
         if [ -n "$POT_FILES" ]; then
             FILES="$FILES"$'\n'"$POT_FILES"
         fi
+
+        # Find Android source string resources (res/values/*.xml, i.e. the base
+        # locale — not translated values-<locale> dirs). res/values also holds
+        # non-string XML (colors.xml, styles.xml, dimens.xml, ...), so keep only
+        # files that actually contain string/string-array/plurals resources.
+        ANDROID_XML_FILES=$(find $pattern \( -path "*/res/values/*.xml" -o -path "res/values/*.xml" \) -type f 2>/dev/null | grep -v "node_modules" | while IFS= read -r xml_file; do
+            if grep -Eq '<(string|string-array|plurals)([[:space:]>])' "$xml_file"; then
+                echo "$xml_file"
+            fi
+        done)
+        if [ -n "$ANDROID_XML_FILES" ]; then
+            FILES="$FILES"$'\n'"$ANDROID_XML_FILES"
+        fi
     done
 
     # Clean up empty lines and sort
@@ -142,7 +156,7 @@ for file in $FILES; do
     # Strip leading ./ from path (GitHub API doesn't accept paths starting with ./)
     clean_filename="${file#./}"
 
-    # Detect if file is JSON (xcstrings, json) or plain text (po, pot, yaml, yml)
+    # Detect if file is JSON (xcstrings, json) or plain text (po, pot, yaml, yml, Android xml)
     case "$file" in
         *.xcstrings|*.json)
             # JSON files: use --slurpfile to read as structured JSON
@@ -222,7 +236,7 @@ else
             output_mode: $output_mode
         } + (if $github_head_branch != "" then {github_head_branch: $github_head_branch} else {} end)
           + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)' > "$TEMP_DIR/payload.json"
-    echo "  Using Autoglot GitHub App for PR creation"
+    echo "  Using autoglot GitHub App for PR creation"
 fi
 
 # Make API request using file input (avoids argument length limits)
@@ -354,7 +368,7 @@ if [ "$WAIT_FOR_COMPLETION_VAL" = "true" ] && [ "$job_id" != "unknown" ]; then
 else
     echo ""
     echo -e "${YELLOW}What happens next:${NC}"
-    echo "  1. Autoglot translates your strings (typically completes in seconds/minutes)"
+    echo "  1. autoglot translates your strings (typically completes in seconds/minutes)"
     if [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
         if [ -n "$HEAD_BRANCH_VAL" ]; then
             echo "  2. Translations are committed to branch '$HEAD_BRANCH_VAL'"

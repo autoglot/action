@@ -1,5 +1,5 @@
-name: "Autoglot Translate"
-description: "Translate Xcode String Catalogs (.xcstrings) and web localization files using Autoglot"
+name: "autoglot translate"
+description: "Translate Xcode String Catalogs (.xcstrings), Android string resources, and web localization files using autoglot"
 author: "autoglot"
 
 branding:
@@ -8,23 +8,23 @@ branding:
 
 inputs:
   api-key:
-    description: "Your Autoglot API key (get one at https://autoglot.app/dashboard/api-keys)"
+    description: "Your autoglot API key (get one at https://autoglot.app/dashboard/api-keys)"
     required: true
   paths:
-    description: "Paths to search for translation files. Supports glob patterns. Leave empty to find all .xcstrings files."
+    description: "Paths to search for translation files. Supports glob patterns. Leave empty to find .xcstrings files only. To translate Android string resources, set this to your source res/values directory or XML files."
     required: false
     default: ""
   languages:
     description: 'Comma-separated list of target languages (e.g., "de,fr,ja")'
     required: true
   api-url:
-    description: "Autoglot API URL (default: https://api.autoglot.app)"
+    description: "autoglot API URL (default: https://api.autoglot.app)"
     required: false
     default: "https://api.autoglot.app"
 
-  # GitHub PR configuration (optional if Autoglot GitHub App is installed)
+  # GitHub PR configuration (optional if autoglot GitHub App is installed)
   github-token:
-    description: "GitHub PAT for creating PRs (optional if GitHub App is installed)"
+    description: "GitHub PAT for creating PRs (optional if autoglot GitHub App is installed)"
     required: false
     default: ""
   branch-name:
@@ -59,15 +59,19 @@ inputs:
 outputs:
   job-id:
     description: "Batch job ID for tracking (or 'skipped' if this was our own commit)"
+    value: ${{ steps.submit.outputs.job-id }}
   skipped:
     description: "Whether the translation was skipped (true if triggered by our own commit)"
+    value: ${{ steps.submit.outputs.skipped }}
   pr-number:
     description: "Pull request number (if wait-for-completion is enabled and PR was created)"
+    value: ${{ steps.submit.outputs.pr-number }}
 
 runs:
   using: "composite"
   steps:
-    - name: Submit Translation Job
+    - name: Submit translation job
+      id: submit
       shell: bash
       env:
         AUTOGLOT_API_KEY: ${{ inputs.api-key }}
