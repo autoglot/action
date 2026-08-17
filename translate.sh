@@ -35,10 +35,18 @@ PR_TITLE_MSG="${PR_TITLE:-chore(i18n): update translations}"
 OUTPUT_MODE_VAL="${OUTPUT_MODE:-create-pr}"
 HEAD_BRANCH_VAL="${HEAD_BRANCH:-}"
 TRIGGER_SHA_VAL="${TRIGGER_SHA:-}"
+TRANSLATION_TIMEOUT_VAL="${TRANSLATION_TIMEOUT:-}"
+
+if [ -n "$TRANSLATION_TIMEOUT_VAL" ] && ! echo "$TRANSLATION_TIMEOUT_VAL" | grep -Eq '^[1-9][0-9]*$'; then
+    echo -e "${RED}Error: timeout must be a positive number of seconds${NC}"
+    exit 1
+fi
 
 # Wait for completion defaults to true for commit-to-branch mode
 if [ -n "$WAIT_FOR_COMPLETION" ]; then
     WAIT_FOR_COMPLETION_VAL="$WAIT_FOR_COMPLETION"
+elif [ -n "$TRANSLATION_TIMEOUT_VAL" ]; then
+    WAIT_FOR_COMPLETION_VAL="true"
 elif [ "$OUTPUT_MODE_VAL" = "commit-to-branch" ]; then
     WAIT_FOR_COMPLETION_VAL="true"
 else
@@ -299,9 +307,12 @@ if [ "$WAIT_FOR_COMPLETION_VAL" = "true" ] && [ "$job_id" != "unknown" ]; then
     echo ""
     echo -e "${BLUE}Waiting for translation to complete...${NC}"
 
-    MAX_WAIT=300  # 5 minutes max
+    MAX_WAIT="${TRANSLATION_TIMEOUT_VAL:-300}"
     POLL_INTERVAL=5
     elapsed=0
+    fallback_requested="false"
+    fallback_reason="timed out after ${TRANSLATION_TIMEOUT_VAL}s"
+    finished="false"
 
     poll_failures=0
 
@@ -340,13 +351,20 @@ if [ "$WAIT_FOR_COMPLETION_VAL" = "true" ] && [ "$job_id" != "unknown" ]; then
                 elif [ -n "$commit_sha" ]; then
                     echo "Committed to ${HEAD_BRANCH_VAL:-$BASE_BRANCH} ($commit_sha)"
                 fi
+                finished="true"
                 break
                 ;;
             "failed")
                 echo ""
                 error_msg=$(echo "$status_response" | jq -r '.error_message // "Unknown error"' 2>/dev/null) || error_msg="Unknown error"
-                echo -e "${RED}✗ Translation failed: $error_msg${NC}"
-                exit 1
+                if [ -n "$TRANSLATION_TIMEOUT_VAL" ] && [ "$fallback_requested" = "false" ]; then
+                    echo -e "${YELLOW}Translation failed: $error_msg${NC}"
+                    fallback_reason="failed"
+                    elapsed="$TRANSLATION_TIMEOUT_VAL"
+                else
+                    echo -e "${RED}✗ Translation failed: $error_msg${NC}"
+                    exit 1
+                fi
                 ;;
             "cancelled")
                 echo ""
@@ -358,9 +376,38 @@ if [ "$WAIT_FOR_COMPLETION_VAL" = "true" ] && [ "$job_id" != "unknown" ]; then
                 printf "\r  Progress: %s%% (${elapsed}s elapsed)" "$progress"
                 ;;
         esac
+
+        if [ -n "$TRANSLATION_TIMEOUT_VAL" ] && [ "$fallback_requested" = "false" ] && [ $elapsed -ge $TRANSLATION_TIMEOUT_VAL ]; then
+            echo ""
+            echo -e "${YELLOW}Translation ${fallback_reason}. Requesting the latest compatible cached translations...${NC}"
+
+            fallback_response=$(curl -s -w "\n%{http_code}" \
+                -X POST \
+                -H "Authorization: Bearer $AUTOGLOT_API_KEY" \
+                "$API_URL/v1/translate/$job_id/fallback" 2>&1)
+            fallback_http_code=$(echo "$fallback_response" | tail -n1)
+            fallback_body=$(echo "$fallback_response" | sed '$d')
+
+            if [ "$fallback_http_code" != "202" ] && [ "$fallback_http_code" != "200" ]; then
+                fallback_error=$(echo "$fallback_body" | jq -r '.error // "Unknown error"' 2>/dev/null || echo "$fallback_body")
+                echo -e "${RED}Cached fallback failed ($fallback_http_code): $fallback_error${NC}"
+                exit 1
+            fi
+
+            fallback_requested="true"
+            MAX_WAIT=$((elapsed + 120))
+            echo "Cached translations are ready; waiting for GitHub delivery..."
+            if [ -n "$GITHUB_OUTPUT" ]; then
+                echo "fallback-used=true" >> "$GITHUB_OUTPUT"
+            fi
+        fi
     done
 
-    if [ $elapsed -ge $MAX_WAIT ]; then
+    if [ "$finished" != "true" ] && [ "$fallback_requested" = "true" ]; then
+        echo ""
+        echo -e "${RED}Cached translations were prepared, but GitHub delivery did not finish within 120s.${NC}"
+        exit 1
+    elif [ "$finished" != "true" ]; then
         echo ""
         echo -e "${YELLOW}Timed out waiting for completion. Job is still processing.${NC}"
         echo "Track progress: $API_URL/v1/translate/$job_id"

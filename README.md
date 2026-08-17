@@ -98,6 +98,8 @@ That's it! Push a change to a `.xcstrings` file and a PR will appear within minu
 | `base-branch` | No | `main` | Base branch for the PR |
 | `commit-message` | No | `chore(i18n): update translations` | Commit message |
 | `pull-request-title` | No | `chore(i18n): update translations` | PR title |
+| `timeout` | No | - | Maximum translation wait in seconds. At the deadline, deliver the latest compatible cached translations instead |
+| `wait-for-completion` | No | `true` for `commit-to-branch`, otherwise `false` | Wait for delivery before exiting. Setting `timeout` also enables waiting |
 
 ## Outputs
 
@@ -211,6 +213,20 @@ jobs:
           languages: "de,fr,es,ja"
           output-mode: commit-to-branch
           commit-message: "chore(i18n): update translations"
+```
+
+### Build-time fallback
+
+Keep a build or release branch available when fresh translation is delayed. The fallback preserves the current source file and only reuses target localizations whose source content still matches.
+
+```yaml
+- uses: autoglot/action@v2
+  with:
+    api-key: ${{ secrets.AUTOGLOT_API_KEY }}
+    paths: "src/locales"
+    languages: "de,fr,es,ja"
+    output-mode: commit-to-branch
+    timeout: "120"
 ```
 
 ### Weekly Translation Sync

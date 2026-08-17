@@ -55,6 +55,10 @@ inputs:
     description: "Wait for translation job to complete before exiting. Defaults to true for commit-to-branch mode, false otherwise."
     required: false
     default: ""
+  timeout:
+    description: "Maximum translation wait in seconds. When reached, deliver the latest compatible cached translations for this repository."
+    required: false
+    default: ""
 
 outputs:
   job-id:
@@ -66,6 +70,9 @@ outputs:
   pr-number:
     description: "Pull request number (if wait-for-completion is enabled and PR was created)"
     value: ${{ steps.submit.outputs.pr-number }}
+  fallback-used:
+    description: "Whether the latest compatible cached translations were delivered after a timeout"
+    value: ${{ steps.submit.outputs.fallback-used }}
 
 runs:
   using: "composite"
@@ -88,5 +95,6 @@ runs:
         HEAD_BRANCH: ${{ inputs.head-branch || github.head_ref }}
         TRIGGER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         WAIT_FOR_COMPLETION: ${{ inputs.wait-for-completion }}
+        TRANSLATION_TIMEOUT: ${{ inputs.timeout }}
       run: |
         ${{ github.action_path }}/translate.sh
