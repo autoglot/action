@@ -36,9 +36,16 @@ OUTPUT_MODE_VAL="${OUTPUT_MODE:-create-pr}"
 HEAD_BRANCH_VAL="${HEAD_BRANCH:-}"
 TRIGGER_SHA_VAL="${TRIGGER_SHA:-}"
 TRANSLATION_TIMEOUT_VAL="${TRANSLATION_TIMEOUT:-}"
+SOURCE_BRANCH_VAL="${SOURCE_BRANCH:-}"
+DEPLOYMENT_TYPE_VAL="${DEPLOYMENT_TYPE:-}"
 
 if [ -n "$TRANSLATION_TIMEOUT_VAL" ] && ! echo "$TRANSLATION_TIMEOUT_VAL" | grep -Eq '^[1-9][0-9]*$'; then
     echo -e "${RED}Error: timeout must be a positive number of seconds${NC}"
+    exit 1
+fi
+
+if [ -n "$DEPLOYMENT_TYPE_VAL" ] && [ "$DEPLOYMENT_TYPE_VAL" != "preview" ] && [ "$DEPLOYMENT_TYPE_VAL" != "release" ]; then
+    echo -e "${RED}Error: deployment-type must be preview or release${NC}"
     exit 1
 fi
 
@@ -65,6 +72,12 @@ else
     echo "Branch: $BRANCH"
 fi
 echo "Base branch: $BASE_BRANCH"
+if [ -n "$SOURCE_BRANCH_VAL" ]; then
+    echo "Source branch: $SOURCE_BRANCH_VAL"
+fi
+if [ -n "$DEPLOYMENT_TYPE_VAL" ]; then
+    echo "Deployment type: $DEPLOYMENT_TYPE_VAL"
+fi
 echo "Languages: $TARGET_LANGUAGES"
 echo ""
 
@@ -208,6 +221,8 @@ if [ -n "$GITHUB_PAT" ]; then
         --arg output_mode "$API_OUTPUT_MODE" \
         --arg github_head_branch "$HEAD_BRANCH_VAL" \
         --arg trigger_sha "$TRIGGER_SHA_VAL" \
+        --arg source_branch "$SOURCE_BRANCH_VAL" \
+        --arg deployment_type "$DEPLOYMENT_TYPE_VAL" \
         '{
             files: $files[0],
             target_languages: $target_languages,
@@ -219,7 +234,9 @@ if [ -n "$GITHUB_PAT" ]; then
             pr_title: $pr_title,
             output_mode: $output_mode
         } + (if $github_head_branch != "" then {github_head_branch: $github_head_branch} else {} end)
-          + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)' > "$TEMP_DIR/payload.json"
+          + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)
+          + (if $source_branch != "" then {branch: $source_branch} else {} end)
+          + (if $deployment_type != "" then {deployment_type: $deployment_type} else {} end)' > "$TEMP_DIR/payload.json"
     echo "  Using provided PAT for GitHub access"
 else
     jq -n \
@@ -233,6 +250,8 @@ else
         --arg output_mode "$API_OUTPUT_MODE" \
         --arg github_head_branch "$HEAD_BRANCH_VAL" \
         --arg trigger_sha "$TRIGGER_SHA_VAL" \
+        --arg source_branch "$SOURCE_BRANCH_VAL" \
+        --arg deployment_type "$DEPLOYMENT_TYPE_VAL" \
         '{
             files: $files[0],
             target_languages: $target_languages,
@@ -243,7 +262,9 @@ else
             pr_title: $pr_title,
             output_mode: $output_mode
         } + (if $github_head_branch != "" then {github_head_branch: $github_head_branch} else {} end)
-          + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)' > "$TEMP_DIR/payload.json"
+          + (if $trigger_sha != "" then {trigger_sha: $trigger_sha} else {} end)
+          + (if $source_branch != "" then {branch: $source_branch} else {} end)
+          + (if $deployment_type != "" then {deployment_type: $deployment_type} else {} end)' > "$TEMP_DIR/payload.json"
     echo "  Using autoglot GitHub App for PR creation"
 fi
 

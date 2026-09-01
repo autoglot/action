@@ -100,6 +100,7 @@ That's it! Push a change to a `.xcstrings` file and a PR will appear within minu
 | `pull-request-title` | No | `chore(i18n): update translations` | PR title |
 | `timeout` | No | - | Maximum translation wait in seconds. At the deadline, deliver the latest compatible cached translations instead |
 | `wait-for-completion` | No | `true` for `commit-to-branch`, otherwise `false` | Wait for delivery before exiting. Setting `timeout` also enables waiting |
+| `deployment-type` | No | `release` | Activity metadata: `preview` or `release`. The source branch is detected from the GitHub workflow context |
 
 ## Outputs
 

@@ -59,6 +59,10 @@ inputs:
     description: "Maximum translation wait in seconds. When reached, deliver the latest compatible cached translations for this repository."
     required: false
     default: ""
+  deployment-type:
+    description: "Optional activity metadata: 'preview' or 'release'"
+    required: false
+    default: "release"
 
 outputs:
   job-id:
@@ -94,6 +98,8 @@ runs:
         OUTPUT_MODE: ${{ inputs.output-mode }}
         HEAD_BRANCH: ${{ inputs.head-branch || github.head_ref }}
         TRIGGER_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        DEPLOYMENT_TYPE: ${{ inputs.deployment-type }}
         WAIT_FOR_COMPLETION: ${{ inputs.wait-for-completion }}
         TRANSLATION_TIMEOUT: ${{ inputs.timeout }}
       run: |
